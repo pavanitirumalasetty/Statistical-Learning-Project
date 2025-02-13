@@ -1,0 +1,492 @@
+---
+title: "College {ISLR2 Package}"
+subtitle: "MATH-50028-001: STATISTICAL LEARNING"
+date: "May 10, 2024"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+fontfamily: mathpazo
+fontsize: 11pt
+header-includes: \linespread{1.05}
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction [5 points]
+
+The dataset "College" is chosen from ISLR2 package. This college dataset, includes information on a range of US institutions, is taken from the US News & World Report publication from 1995. It appears to have been put together to provide a summary of many characteristics that would be of interest to academic scholars, policy officials, and prospective students who are involved in the planning and study of higher education.
+
+There are 18 variables associated with each of the 777 observations in the dataset, which are likely to represent distinct institutions or universities. These variables provide a range of information about the colleges, such as the number of applications received, enrollment figures, percentages of high-achieving students, undergraduate populations (part-time and full-time), costs (tuition, books, room and board, personal expenses), faculty qualifications, student-to-faculty ratios, percentages of alumni donations, spending per student, etc.
+
+The dataset appears to focus on US colleges and universities as they are included in the US News and World Report from 1995, which may provide a thorough picture of these establishments. However, there is no specific description of the sample technique, which may lead to concerns over selection bias. It's not apparent, for example, if all institution types such as community colleges, technical schools, and recently created universities are included or if some institution types such as large research universities or liberal arts colleges are over-represented. Due to this ambiguity, analyses may be biased toward particular types of universities and may not give a complete picture of all higher education institutions in the United States at that particular moment.
+
+### Research Question: 
+
+Which institutional characteristics significantly influence the enrollment decisions of students in college?
+
+### Loading and preparing the data
+```{r cars}
+
+library(ISLR2)
+library(dplyr)
+
+data(College)
+head(College)
+str(College)
+
+# Converting 'Private' column to numeric i.e 1 for Yes, 0 for No
+College$Private <- as.numeric(College$Private == "Yes")  
+
+# Checking for missing values
+College <- na.omit(College)
+
+# Printing the summary
+summary(College)
+
+```
+
+### Split the Data into Training and Test Sets
+
+It is essential to divide the data into training and testing sets for the following reasons: model tuning, over fitting avoidance, and model evaluation. The amount of indices to sample, "0.7 * nrow(College)". 30% of the data is test samples, while the remaining 70% is train samples.
+```{r}
+
+set.seed(123)
+
+indices <- sample(1:nrow(College), 0.7 * nrow(College))
+train <- College[indices, ]
+test <- College[-indices, ]
+
+# Checking the size of each set
+cat("Training set rows:", nrow(train))
+cat("Test set rows:", nrow(test))
+
+# Printing the Summary of the training data
+summary(train)
+
+```
+
+# Statistical learning strategies and methods [15 points]
+
+### Backward selection to reduce the number of redundant or irrelevant features.
+
+The below code illustrates statistical learning methods and feature engineering strategies for modeling using a college enrollment dataset. Firstly, the category 'Private' variable is converted to a numeric format in order to prepare the dataset. After determining the skewness of continuous data, we apply modification to highly skewed variables like "Apps" and "Accept." It improves the interpretability and efficiency of the model by normalizing "Outstate" tuition fees and "Room.Board" prices to have a mean of zero and a standard deviation of one. Furthermore, 'AcceptanceRate' is a new feature that may be able to capture more subtle influences on enrollment. 
+
+An iterative process of backward elimination that begins with a complete model with all variables and newly designed features, with the goal of identifying the most important predictors by eliminating the least significant ones. In order to improve model performance and reduce complexity, the final model is adjusted to contain those variables that have a meaningful influence on the goal variable, 'Enroll'. This method combines sophisticated feature engineering approaches to improve model accuracy and interpretability with statistical learning concepts for model creation.
+```{r}
+# Load the MASS package for backward selection
+library(MASS)  # For backward selection using stepAIC
+library(e1071)  # For skewness function
+
+
+# Applying log transformation to continuous variables that are skewed
+# Checking for skewness in continuous variables, assuming continuous variables 
+# like 'Apps', 'Accept', etc.
+
+# Converting 'Private' variable to numeric 
+train$Private <- as.numeric(train$Private == "Yes")
+test$Private <- as.numeric(test$Private == "Yes")
+
+continuous_vars <- sapply(train, function(x) is.numeric(x) && length(unique(x)) > 2)
+
+# Calculating skewness for these continuous variables
+skewness_values <- sapply(train[, continuous_vars, drop = FALSE], skewness)
+
+# Printing skewness values
+print(skewness_values)
+
+# Applying log transformation where it makes sense (e.g., 'Apps', 'Accept' if they are skewed)
+train$LogApps <- log(train$Apps + 1)
+train$LogAccept <- log(train$Accept + 1)
+test$LogApps <- log(test$Apps + 1)
+test$LogAccept <- log(test$Accept + 1)
+
+# Normalizing 'Outstate' tuition fees and 'Room.Board' to 
+#have mean of 0 and standard deviation of 1
+train$NormOutstate <- scale(train$Outstate)
+train$NormRoomBoard <- scale(train$Room.Board)
+test$NormOutstate <- scale(test$Outstate)
+test$NormRoomBoard <- scale(test$Room.Board)
+
+# Creating a new feature that captures the acceptance rate
+train$AcceptanceRate <- train$Accept / train$Apps
+test$AcceptanceRate <- test$Accept / test$Apps
+
+# Modifying full model to include mandatory terms and allow other terms to compete
+mandatory_terms <- lm(Enroll ~ Apps + Accept + Outstate + Room.Board + Grad.Rate, 
+                      data = train)
+full_model <- update(mandatory_terms, . ~ . + F.Undergrad + P.Undergrad + PhD + 
+                       perc.alumni + LogApps + LogAccept )
+
+# Performing backward stepwise selection starting from the full model
+backward_step <- stepAIC(full_model, scope = list(lower = formula(mandatory_terms), 
+                upper = formula(full_model)), direction = "backward", trace = FALSE)
+
+selected_features <- names(coef(backward_step))
+selected_features <- selected_features[-1]  # Removing intercept
+cat("Final selected features after backward selection:\n")
+print(selected_features)
+
+```
+The skewness values for different characteristics from a college dataset are included in the output, along with information on which variables are kept after modeling using forward elimination. The values for Accept and P. Undergrad exhibit strong positive skewness, suggesting right-skewed distributions, whereas the other values indicate the degree of asymmetry in the distribution of each characteristic around its mean. A negative skewness, on the other hand, indicates tails expanding towards lower values in variables like PhD and Terminal.  Significant predictors like Apps, Accept, Outstate, Room.Board, Grad.Rate, F.Undergrad, P.Undergrad, and perc.alumni were chosen for the final model using the stepAIC function to execute the backward elimination strategy. The explanatory power and statistical prediction efficiency of the model are increased since these factors are thought to have a significant effect on college enrollment forecasts.
+
+### Plotting the best model obtained according to Cp, BIC, and adjusted R2
+
+Using Cp, BIC, and modified R2 metrics, the algorithm builds models with progressively more combinations of chosen characteristics and assesses the statistical merits of each model. Iteratively adding one feature at a time, it evaluates each model's performance before determining and presenting the top model based on each criterion. Plots are also included to provide a visual comparison of how these metrics alter as more variables are added.
+```{r}
+# Creating models with different combinations of selected features
+models <- lapply(1:length(selected_features), function(i) {
+  formula <- as.formula(paste("Enroll ~", paste(selected_features[1:i], collapse = " + ")))
+  lm_model <- lm(formula, data = train)
+  return(lm_model)
+})
+
+# Calculating Cp, BIC, and adjusted R^2 for each model
+metrics <- sapply(models, function(model) {
+  AIC <- AIC(model)
+  Cp <- AIC + 2 * length(model$coef) * (nrow(train) / (nrow(train) - length(model$coef) - 1))
+  BIC <- AIC + log(nrow(train)) * length(model$coef)
+  adj_R2 <- summary(model)$adj.r.squared
+  return(c(Cp, BIC, adj_R2))
+})
+
+# Finding the model with the minimum Cp, BIC, and maximum adjusted R^2
+best_model_idx <- list(Cp = which.min(metrics[1, ]),
+                       BIC = which.min(metrics[2, ]),
+                       adj_R2 = which.max(metrics[3, ]))
+
+# Printing the best model according to Cp, BIC, and adjusted R^2
+cat("Best model according to Cp:\n")
+print(models[[best_model_idx$Cp]])
+
+cat("\nBest model according to BIC:\n")
+print(models[[best_model_idx$BIC]])
+
+cat("\nBest model according to adjusted R^2:\n")
+# Create models with different combinations of selected features
+print(models[[best_model_idx$adj_R2]])
+
+# Plotting
+par(mfrow = c(2, 2))
+
+# Plotting Cp values
+plot(metrics[1, ], xlab = "Number of variables", ylab = "C_p", type = "l")
+points(which.min(metrics[1, ]), min(metrics[1, ]), col = "red", cex = 2, pch = 20)
+
+# Plotting BIC values
+plot(metrics[2, ], xlab = "Number of variables", ylab = "BIC", type = "l")
+points(which.min(metrics[2, ]), min(metrics[2, ]), col = "red", cex = 2, pch = 20)
+
+# Plotting Adjusted R^2 values
+plot(metrics[3, ], xlab = "Number of variables", ylab = "Adjusted R^2", type = "l")
+points(which.max(metrics[3, ]), max(metrics[3, ]), col = "red", cex = 2, pch = 20)
+
+mtext("Plots of Cp, BIC and Adjusted R^2 for Model Selection", side = 3, line = -2, 
+      outer = TRUE)
+
+```
+The best model, determined by three distinct criteria (Cp, BIC, and modified R²), is displayed in detail in the output. The coefficients for each predictor variable are shown next to the intercept in a linear regression formula that has been fitted to the training set of each model. These coefficients show how much each predictor is expected to influence the response variable, "Enroll." The same coefficient values are shown by the three best models, while having different labels, indicating that the variables' effects are consistent across the various model selection criteria.
+
+From the visual representation, we observe that there three metrics Cp, BIC, and Adjusted R2 for Model Selection-
+1) Cp is a metric used to address over fitting. It strikes a compromise between the amount of variables in the model and how well it fits the data. A better model is indicated by a lower Cp value.
+2) One measure used to deal with over fitting is BIC. A better model is indicated by lower BIC values.
+3) The percentage of the dependent variable's variation that the independent variables account for is shown by the R2 statistic, which is employed in regression analysis. Since adding additional variables tends to enhance R2, models with too many variables are penalized by adjusted R².
+
+### Exploratory Data Analysis (EDA) using training set
+
+The distribution, outliers, and correlations between the important numerical variables in the training dataset are shown using a set of exploratory data analysis (EDA). It uses boxplots to find outliers, scatter plots to investigate associations, histograms to show the distributions, and scatter plots with regression lines to investigate the link between enrollment and other factors in more detail.
+```{r}
+# Loading necessary library for visualization
+library(ggplot2)
+library(corrplot)
+library(gridExtra)
+
+# Plotting histograms for key numerical variables
+par(mfrow = c(3, 3))
+hist(train$Enroll, main = "Enrollment", xlab = "Number of Enrollments", col = "lightcoral")
+hist(train$Apps, main = "Applications", xlab = "Number of Applications", col = "lightblue")
+hist(train$Accept, main = "Acceptances", xlab = "Number of Acceptances", col = "lightgreen")
+hist(train$Outstate, main = "Out-of-State Tuition", xlab = "Tuition Cost", col = "yellow")
+hist(train$Room.Board, main = "Room and Board Costs", xlab = "Cost", col = "orange")
+hist(train$Grad.Rate, main = "Graduation Rate", xlab = "Graduation Rate", col = "purple")
+hist(train$F.Undergrad, main = "Fulltime undergraduates", xlab = "Number of fulltime undergraduates", 
+     col = "lightpink")
+hist(train$P.Undergrad , main = "Parttime undergraduates", xlab = "Number of parttime undergraduates", 
+     col = "grey")
+hist(train$perc.alumni, main = "Percentage", xlab = "Pct. alumni who donate", col = "violet")
+
+# Boxplots to check for outliers
+boxplot(train$Enroll, main = "Boxplot for Enrollment", ylab = "Enrollment Numbers")
+boxplot(train$Apps, main = "Boxplot for applications received", ylab = "Number of 
+        applications")
+boxplot(train$Accept, main = "Boxplot for applications accepted", ylab = "Number of 
+        applications")
+boxplot(train$Outstate, main = "Boxplot for Out-of-State Tuition", ylab = "Tuition Cost")
+boxplot(train$Room.Board, main = "Boxplot for Room and Board Costs", ylab = "Cost")
+boxplot(train$Grad.Rate, main = "Boxplot for Graduation Rate", ylab = "Percentage")
+boxplot(train$F.Undergrad, main = "Boxplot for Fulltime Undergraduates", ylab = "Fulltime 
+        Undergraduates Numbers")
+boxplot(train$P.Undergrad, main = "Boxplot for parttime Undergraduates", ylab = "Parttime 
+        Undergraduates Numbers")
+boxplot(train$perc.alumni, main = "Boxplot for Pct. alumni who donate", ylab = "Percentage of 
+        Alumni")
+
+
+# Scatter plots to see relationships between key variables
+pairs(~Enroll + Apps + Accept + Outstate + Room.Board + Grad.Rate + F.Undergrad + 
+        P.Undergrad + perc.alumni, data = train)
+
+# Creating each plot
+p1 <- ggplot(train, aes(x = Outstate, y = Enroll)) + geom_point() + geom_smooth(method = "lm") + 
+  ggtitle("Enrollment vs Out-of-State Tuition") + xlab("Out-of-State Tuition") + ylab("Enrollment")
+p2 <- ggplot(train, aes(x = Room.Board, y = Enroll)) + geom_point() + geom_smooth(method = "lm") + 
+  ggtitle("Enrollment vs Room Board Cost") + xlab("Room Board Cost") + ylab("Enrollment")
+p3 <- ggplot(train, aes(x = Grad.Rate, y = Enroll)) + geom_point() + geom_smooth(method = "lm") + 
+  ggtitle("Graduation Rate") + xlab("Graduation Rate") + ylab("Enrollment")
+p4 <- ggplot(train, aes(x = F.Undergrad, y = Enroll)) + geom_point() + geom_smooth(method = "lm") + 
+  ggtitle("Number of Fulltime Undergraduates") + xlab("Fulltime Undergraduates") + ylab("Enrollment")
+p5 <- ggplot(train, aes(x = P.Undergrad, y = Enroll)) + geom_point() + geom_smooth(method = "lm") + 
+  ggtitle("Number of Parttime Undergraduates") + xlab("Parttime Undergraduates") + ylab("Enrollment")
+p6 <- ggplot(train, aes(x = perc.alumni, y = Enroll)) + geom_point() + geom_smooth(method = "lm") + 
+  ggtitle("Pct. Alumni Who Donate") + xlab("Pct. Alumni") + ylab("Enrollment")
+
+grid.arrange(p1, p2, p3, p4, p5, p6, nrow = 3)
+
+```
+Histogram plot: Histograms for a number of variables, including enrollment, applications, acceptances, and tuition expenses, are shown. To visually identify each histogram, distinct colors are used for each. By highlighting features like skewness and bimodality, these histograms aid in the comprehension of each variable's distribution.
+ 
+Box plot: The distribution and central trends (median, quartiles) of the data and to detect outliers, the boxplots for the same variables. In order to possibly affect any statistical models constructed from this data, it is necessary to identify data points that differ considerably from the rest.
+
+Scatter plot: The scatter plots with fitted linear regression lines to investigate correlations between enrollment and other factors like the cost of room & board and out-of-state tuition. This stage is crucial for finding any linear trends and correlations that might guide more in-depth statistical research or the creation of models.
+
+The last graph indicates coherent visual overview of the associations between enrollment and other important factors, all scatter plots are finally neatly arranged on a single page using the grid.arrange function from gridExtra. This makes it easier to compare plots across numerous plots. This in-depth visual investigation can support initial data analysis, providing direction for additional statistical testing or predictive modeling.
+
+### Correlation matrix and checking for mutli-colinearity with PCA
+
+It illustrates a methodical approach to data analysis that addresses multicollinearity in a dataset and visualizing correlations and using principal component analysis (PCA). First, the script searches for numeric columns in the dataset, eliminates low-variance columns, and creates a correlation matrix using pairwise full observations to handle missing values.  In order to minimize multicollinearity problems and simplify the data structure, it performs principal component analysis (PCA) on the dataset to decrease dimensionality and find principal components that capture the most variation. The format of the findings includes the standard deviations, variance proportions, and cumulative proportions of these components. 
+```{r}
+library(corrplot)
+
+# Filtering to numeric columns
+numeric_data <- train[, sapply(train, is.numeric)]
+
+# Removing columns with zero variance or not enough variance
+numeric_data <- numeric_data[, sapply(numeric_data, function(x) sd(x, na.rm = TRUE) > 0)]
+
+# Handling NAs by pairwise complete observation
+cor_matrix <- cor(numeric_data, use = "pairwise.complete.obs")
+
+# Plotting the correlation matrix
+corrplot(cor_matrix, method = "circle", type = "lower", order = "hclust",
+         tl.col = "black", tl.srt = 45)
+
+# PCA to handle multicollinearity
+pca_result <- prcomp(College, scale. = TRUE)  
+importance_df <- summary(pca_result)$importance 
+importance_df <- as.data.frame(t(importance_df))
+colnames(importance_df) <- c("Standard Deviation", "Proportion of Variance", 
+                             "Cumulative Proportion")
+rownames(importance_df) <- paste("PC", 1:nrow(importance_df), sep = "")
+print(importance_df)
+
+```
+The correlation analysis reveals insights into factors influencing Enrollment. Notably, Enrollment shows 
+minimal correlation with Personal, books, S.F. Ratio is relatively weak, and improvement 
+surcharge at Accept, Perc.alumni, Grad.Rate. This suggests that while these factors may have some influence, their impact on Enrollment. Understanding these correlations aids in optimizing Enrollment calculations and providing 
+transparent decisions in college systems.
+
+The standard deviations, proportions of variance, and cumulative proportions of variance explained by each principal component (PC) are shown in this Principal Component Analysis (PCA) output. The data is primarily characterized by the first two components (PC1 and PC2), which together account for approximately 58.4% of the total variance in the dataset.
+
+# Predictive analysis and results [15 points]
+
+#### Linear Regression with k-fold cross validation resampling
+
+Initially, performing Linear Regression with k-fold cross validation resampling on selected features such as Apps, Accept, Outstate, Room board cost, graduate rate, fulltime undergrad, parttime undergrad, percent alumni and check for evaluation metrics on test data. 
+
+the required R packages are loaded, followed by stats for more statistical functions and caret for machine learning techniques. Tools for creating, adjusting, and assessing predictive models are included in these programs. In order to make sure that the outcomes are constant after several runs, a repeatable random seed is established using set.seed(123). A 10-fold cross-validation is specified in the trainControl() definition of the training control settings. By dividing the data into ten subsets and using nine of them for training and one for validation throughout each iteration, this technique helps to consistently evaluate model performance and decrease overfitting. Apps, Accept, Outstate, Room.Board, Grad.Rate, F.Undergrad, P.Undergrad, and perc.alumni are some of the indicators that the model formula uses to predict Enroll. Then, using the established formula and cross-validation parameters, a linear model (lm) is fitted to the training data (train dataset) using the train() function from the caret package. This function optimizes the model's parameters as needed in addition to fitting the model. To examine the model coefficients and other statistical metrics, which shed light on the importance and impact of each predictor in the model, the fitted model summary is printed.
+```{r}
+# Loading the necessary packages
+library(caret)
+library(stats)
+
+# Setting up cross-validation method: 10-fold cross-validation
+set.seed(123)  # for reproducibility
+train_control <- trainControl(
+  method = "cv",  # cross-validation
+  number = 10   # number of folds
+)
+
+# Defining the model formula with selected features
+formula <- Enroll ~ Apps + Accept + Outstate + Room.Board + Grad.Rate + F.Undergrad + 
+  P.Undergrad + perc.alumni
+
+# Fitting the model 
+model <- train(
+  formula, 
+  data = train, 
+  method = "lm",  # linear model     
+  trControl = train_control
+)
+
+# Summary of the model to check coefficients and model statistics
+print(summary(model$finalModel))
+
+# Using the model to make predictions on the test set
+predictions <- predict(model, newdata = test)
+
+# Calculating MSE
+mse <- mean((predictions - test$Enroll)^2)
+cat("Test Mean Square Error (MSE):", mse, "\n")
+
+# Calculating RMSE
+rmse <- sqrt(mse)
+cat("Test Root Mean Square Error (RMSE):", rmse, "\n")
+
+# Calculating MAE
+mae <- mean(abs(predictions - test$Enroll))
+cat("Test Mean Absolute Error (MAE):", mae, "\n")
+
+# Calculating R-Squared
+r_squared <- summary(model$finalModel)$r.squared
+cat("Test R-squared:", r_squared, "\n")
+
+# Residuals vs Fitted
+plot(model$finalModel$fitted.values, resid(model$finalModel),
+     xlab = "Fitted values", ylab = "Residuals", main = "Residuals vs Fitted")
+abline(h = 0, col = "blue")
+
+```
+The result of a linear regression model that forecasts college enrollment (Enroll) based on a number of institutional parameters (Apps, Accept, Outstate, Room.Board, Grad.Rate, F.Undergrad, P.Undergrad, perc.alumni) produces this output. The expected impact of each predictor on enrollment is displayed in the coefficients section. For instance, an estimated 0.12 units more enrollment will result from a one unit rise in Accept.
+This signify the degree of statistical significance, while asterisks highlight the relevance of each predictor. 
+
+The model is used to forecast enrollment for a test dataset once it has been trained. Evaluating test data performance by these metrics, 
+Mean Squared Error (MSE) and Root Mean Square Error (RMSE): These metrics indicate the average squared difference and the root of this difference between observed and predicted enrollment values, respectively, providing a measure of model accuracy.
+
+Mean Absolute Error (MAE): This metric represents the average absolute difference between predicted and actual enrollments, offering another perspective on prediction accuracy.
+
+R-squared (R²): This statistic measures the proportion of variance in the dependent variable that is predictable from the independent variables, giving an indication of the goodness of fit.
+
+Furthermore, a test dataset is used to construct test metrics like Mean Squared Error (MSE), Root Mean Squared Error (RMSE), Mean Absolute Error (MAE), and R-squared, which show how well the model performs on unobserved data.
+The model's overall high R-squared value (0.95) means that the institutional features it includes can account for around 95% of the variance in college attendance. The model's performance is further validated by the test error metrics, where low mistake rates show that the model is good at predicting enrollment. The test's mean square error (MSE), which is 55139.46 and quite high, can be decreased by using Random Forest Regression, an advanced statistical learning method. 
+
+The model is evaluated by creating a plot of residuals against fitted values. Non-linearity, uneven error variances, and outliers may all be found with the aid of this figure. In order to visually evaluate the residuals' randomness a critical step in verifying the linear regression's underlying assumptions a plot's horizontal line at zero is helpful illustrates the correlation between a linear regression model's fitted values and residuals. The residuals in this particular instance appear to be haphazardly dispersed about zero, lacking any discernible pattern. This implies that there is no bias in the predictions and that the mistakes in the model are random.
+
+The residuals in this case are ideally randomly distributed about zero on the y-axis in a linear regression model. This indicates that the model is operating effectively.The model is not very well adapted to the available data, thanks to this methodical approach, and it may be enhanced by demonstrating its effectiveness on fresh, untested data, making it a reliable tool for predictive analysis in an educational setting. To create a trustworthy prediction model that is verified using exacting statistical techniques, the procedure described above is crucial.
+
+### Random Forest Regression with k-fold cross validation resampling
+
+Now, performing Random Forest Regression with k-fold cross validation resampling on selected features such as Apps, Accept, Outstate, Room board cost, graduate rate, fulltime undergrad, parttime undergrad, percent alumni and check for evaluation metrics on test data, as the linear regression didn't give better results.
+
+A Random Forest regression model for forecasting college enrollment based on several institutional variables may be built, evaluated, and interpreted according to the code. In order to generate and analyze Random Forest models, the script first loads the randomForest package. For consistent outcomes in the model fitting procedure, a repeatable seed (set.seed(123)) is established. An approach for 10-fold cross-validation is established by the trainControl function included in the caret package. To prevent overfitting and provide a reliable estimate of model performance, this method rotates through 10 subsets of the dataset, utilizing 9 for training and 1 for validation. With predetermined predictors and response (Enroll), the Random Forest model is trained via the train function. The accuracy and stability of the ensemble are increased by configuring the model to develop 500 trees (ntree = 500). To evaluate each predictor variable's relevance within the model, the importance = TRUE parameter is incorporated. The summary of the fitted model is produced to assess the overall model and variable significance statistics, revealing the elements that have the biggest effects on enrollment.
+```{r}
+# Loading necessary libraries
+library(randomForest)
+
+# Setting up cross-validation method: 10-fold cross-validation
+set.seed(123)  # for reproducibility
+train_control <- trainControl(
+  method = "cv", # cross-validation
+  number = 10   # number of folds
+)
+
+# Fitting the Random Forest model 
+rf_model <- train(
+  Enroll ~ Apps + Accept + Outstate + Room.Board + Grad.Rate + F.Undergrad + 
+    P.Undergrad + perc.alumni, 
+  data = train,
+  method = "rf",  # random forest
+  trControl = train_control,
+  ntree = 500,    # number of trees
+  importance = TRUE 
+)
+
+# Summary of the model to check model statistics
+print(rf_model)
+
+# Using the model to make predictions on the test set
+predictions <- predict(rf_model, newdata = test)
+
+# Calculating Mean Squared Error (MSE)
+mse_rf <- mean((test$Enroll - predictions)^2)
+cat("Test Mean Square Error (MSE) for Random Forest:", mse_rf)
+
+# Calculating RMSE
+rmse_rf <- sqrt(mse_rf)
+cat("Test Root Mean Square Error (RMSE) for Random Forest:", rmse_rf, "\n")
+
+# Calculate Mean Absolute Error (MAE)
+mae_rf <- mean(abs(predictions - test$Enroll))
+cat("Test Mean Absolute Error (MAE) for Random Forest:", mae_rf)
+
+# Calculate R-squared (R²)
+sse_rf <- sum((predictions - test$Enroll)^2)  
+sst_rf <- sum((test$Enroll - mean(test$Enroll))^2)  
+r_squared_rf <- 1 - sse_rf / sst_rf
+cat("Test R-squared for Random Forest:", r_squared_rf)
+
+
+# Plot Residuals vs Fitted
+fitted_values <- predict(rf_model, newdata = train)
+residuals <- train$Enroll - fitted_values
+plot(fitted_values, residuals,
+     xlab = "Fitted values", ylab = "Residuals", 
+     main = "Residuals vs Fitted for Random Forest")
+abline(h = 0, col = "blue")  # Horizontal line at 0
+
+```
+This output displays the performance characteristics of a Random Forest regression model that was used to assess the predicted accuracy of the model using unseen data. Since it is expressed in squared units, it can be difficult to interpret the magnitude of the error directly in relation to the original variable. The Mean Squared Error (MSE) of 34,562.79 is a measure of the average squared difference between the actual and predicted enrollment values, this metric is improved by Random Forest Regression when compared to Linear Regression which indicates a better modeling technique. However, because it is expressed in the same units as the outcome variable (enrollment), the Root Mean Square Error (RMSE), which represents the mean departure from the actual enrollments, is around 185.91.An easy indicator of average error per prediction is provided by the Mean Absolute Error (MAE) of 95.74, which expresses the average absolute difference between the values that were predicted and the actual values. Last but not least, the model's R-squared value of 0.967 indicates that it correctly explains almost 96.7% of the variation in college enrollment, demonstrating a very high degree of prediction accuracy and model fit.
+
+To visually evaluate the fit of the model, a plot of the residuals vs the fitted values for the training dataset is made. Plotting such patterns as heteroscedasticity, outliers, or other anomalies that may impact the model's performance is made easier with the use of this graphic. In this graphic, biases in the residual distribution are indicated by the horizontal line at zero.On the y-axis, the residuals seem to be randomly distributed around zero, with no clear trend. This shows that the predictions are not biased and that the mistakes in the model are random.  The residuals in this case are ideally dispersed randomly about zero in a random forest model. This is a positive indication of the model's effectiveness.
+
+This method guarantees a comprehensive examination of the Random Forest model's predictive power and dependability. The process establishes the model's efficacy and pinpoints important college enrollment determinants, offering academic institutions insightful information by analyzing the model using cross-validation and a variety of statistical metrics.
+
+# Conclusion [5 points]
+
+In order to effectively quantify the relationship between Enrollment and predictors such as the number of applications received, acceptance rates, out-of-state tuition, room and board costs, graduation rates, and the proportion of undergraduates enrolled full-time and part-time, as well as the percentage of alumni who donate.
+
+By evaluating each predictor's significance using t- and p-values in linear regression models, it is possible to determine which factors are statistically significant and how much of an impact they have on enrollment rates. For instance, the model's coefficients show how enrollment is expected to be impacted by changes in these characteristics, such as tuition hikes or changes in graduation rates.
+
+In contrast, Random Forest offers a significance score for every characteristic that indicates how well it predicts enrollment. It is especially helpful in identifying non-linear correlations and feature interactions. The result of this model, which shows a high R-squared value, indicates that the model has strong predictive ability and can explain a significant amount of the variance in enrollment.
+
+### Linear Regression Modeling
+
+Scope:
+By estimating coefficients that indicate the change in the dependent variable for a one-unit change in an independent variable, linear regression models are mainly used to understand the relationship between the dependent variable and one or more independent variables.
+This model is very helpful in situations when decision-makers need to know how certain factors will effect enrollment since it gives a clear understanding of how each predictor impacts enrollment.
+
+Generalizability:
+The assumptions of linearity, normalcy, independence, and homoscedasticity of residuals might restrict the generalizability of linear regression models. The model may not produce accurate predictions if certain presumptions are broken.
+In comparable educational environments or institutions, linear models may function quite effectively and offer clearly interpreted forecasts when certain presumptions are satisfied.
+
+Limitations:
+Dependency on Assumptions: In order to do a linear regression analysis, data must satisfy certain assumptions, such as linearity, normalcy, homoscedasticity, and the absence of multicollinearity. These assumptions may not always hold true in actual data, which might result in inaccurate or biased estimations.
+Sensitivity to Outliers: Outliers can significantly affect the model coefficients and distort the findings in linear models, which makes them extremely sensitive to them.
+
+Improvements:
+Robust Regression Techniques: Reliable results may be obtained by using robust regression techniques, which are less susceptible to outliers and assumption violations.
+Feature Transformation: By applying transformations (square root, logarithmic, etc.) to variables, data may occasionally be normalized and variance stabilized, making it more suited for linear modeling.
+Diagnostic and Corrective methods: Model accuracy may be increased by using corrective methods like eliminating outliers or employing penalized regression approaches, as well as by routinely doing residual analysis to find assumptions breaches.
+
+
+### Random Forest Regression Modeling
+
+Scope:
+Based on decision trees, Random Forest is a potent ensemble learning method that works well with nonlinear relationships and feature interactions without the need for transformation or adherence to assumptions.
+It can efficiently manage a large number of features and their interactions, making it especially helpful for complicated datasets where linear connections between variables are not expected.
+
+Generalizability:
+Since Random Forest models do not rely on the premise of a linear connection, they often offer higher predictive accuracy and durability than linear models. Because of their ensemble nature, which employs averaging to increase forecast accuracy and reduce over-fitting, they are also less prone to overfit.
+But compared to linear regression, the predictions made by Random Forest models are more interpreted with less clarity. This makes it difficult to directly use Random Forest results for policy-making, because knowing how changing any one variable would affect things is essential.
+
+Limitations:
+Model Complexity and Interpretability: Random Forest is capable of modeling intricate nonlinear interactions, but it is not as interpretable as more straightforward models such as linear regression, which makes it challenging to determine the importance and function of individual predictors.
+Overfitting in Specific Contexts: Random Forest can overfit even with generally adequate control over fitting, particularly when working with noisy data or when the number of trees is not calibrated to perfection.
+Computationally intensive: Training Random Forest models may be costly and time-consuming in terms of computing, particularly when dealing with big datasets and a lot of trees.
+
+Improvements:
+Feature significance Analysis: By determining which factors have the most influence, using built-in techniques to assess feature significance helps help alleviate the interpretability problem.
+Model tuning: You may improve the performance of the model and avoid overfitting by experimenting with settings like the number of trees, max depth of trees, and the amount of characteristics examined at each split.
+Hybrid Models: By combining linear and random forest models in an ensemble approach, one may take use of both the interpretability of linear regression and the resilience of random forest.
